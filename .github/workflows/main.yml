@@ -20,29 +20,29 @@ on:
         required: false
 
 jobs:
-validate-inputs:
-    runs-on: ubuntu-latest
-    outputs:
-      mode: ${{ steps.mode-detection.outputs.mode }}
-    steps:
-      - name: Input Validation
-        id: mode-detection
-        run: |
-          mode=""
-          if [ -n "${{ inputs.version }}" ]; then
-            if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
-              echo "::error::版本号需要同时提供 changelog/level/significance"
-              exit 1
+  validate-inputs:
+      runs-on: ubuntu-latest
+      outputs:
+        mode: ${{ steps.mode-detection.outputs.mode }}
+      steps:
+        - name: Input Validation
+          id: mode-detection
+          run: |
+            mode=""
+            if [ -n "${{ inputs.version }}" ]; then
+              if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
+                echo "::error::版本号需要同时提供 changelog/level/significance"
+                exit 1
+              fi
+              mode="version"
             fi
-            mode="version"
-          fi
-          
-          if [ -n "${{ inputs.broadcast }}" ]; then
-            mode="${mode:+$mode-}broadcast"
-          fi
+            
+            if [ -n "${{ inputs.broadcast }}" ]; then
+              mode="${mode:+$mode-}broadcast"
+            fi
 
-          [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
-          echo "mode=$mode" >> $GITHUB_OUTPUT
+            [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
+            echo "mode=$mode" >> $GITHUB_OUTPUT
 
   prepare:
     needs: validate-inputs
