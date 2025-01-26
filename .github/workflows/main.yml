@@ -164,15 +164,3 @@ jobs:
               (inputs.changelog && format('Version: {0}', inputs.changelog)), 
               (inputs.broadcast && format('\nBroadcast: {0}', inputs.broadcast))) }}
           default_author: github_actions
-
-      - name: Commit Changes
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: |
-            public.json
-            ${{ contains(needs.validate-inputs.outputs.mode, 'version') && 'utils/static.py' }}
-          message: |
-            ${{ format('{0}{1}', 
-              (inputs.changelog && format('Version: {0}', inputs.changelog)), 
-              (inputs.broadcast && format('\nBroadcast: {0}', inputs.broadcast))) }}
-          default_author: github_actions
