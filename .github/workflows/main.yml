@@ -21,28 +21,28 @@ on:
 
 jobs:
   validate-inputs:
-      runs-on: ubuntu-latest
-      outputs:
-        mode: ${{ steps.mode-detection.outputs.mode }}
-      steps:
-        - name: Input Validation
-          id: mode-detection
-          run: |
-            mode=""
-            if [ -n "${{ inputs.version }}" ]; then
-              if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
-                echo "::error::版本号需要同时提供 changelog/level/significance"
-                exit 1
-              fi
-              mode="version"
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode-detection.outputs.mode }}
+    steps:
+      - name: Input Validation
+        id: mode-detection
+        run: |
+          mode=""
+          if [ -n "${{ inputs.version }}" ]; then
+            if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
+              echo "::error::版本号需要同时提供 changelog/level/significance"
+              exit 1
             fi
-            
-            if [ -n "${{ inputs.broadcast }}" ]; then
-              mode="${mode:+$mode-}broadcast"
-            fi
+            mode="version"
+          fi
+          
+          if [ -n "${{ inputs.broadcast }}" ]; then
+            mode="${mode:+$mode-}broadcast"
+          fi
 
-            [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
-            echo "mode=$mode" >> $GITHUB_OUTPUT
+          [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
+          echo "mode=$mode" >> $GITHUB_OUTPUT
 
   prepare:
     needs: validate-inputs
@@ -107,51 +107,51 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   update-metadata:
-      needs: validate-inputs
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-        
-        - name: Process Metadata Updates
-          env:
-            NEW_VERSION: ${{ inputs.version }}
-            REPO_URL: ${{ github.repository }}
-            RELEASE_TAG: ${{ needs.publish.outputs.release-tag }}
-          run: |
-            # 广播更新
-            if [[ "${{ needs.validate-inputs.outputs.mode }}" == *broadcast* ]]; then
-              jq --arg msg "${{ inputs.broadcast }}" '.broadcast.message = $msg' public.json > tmp.json
-              mv tmp.json public.json
-            fi
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Process Metadata Updates
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+          REPO_URL: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.publish.outputs.release-tag }}
+        run: |
+          # 广播更新
+          if [[ "${{ needs.validate-inputs.outputs.mode }}" == *broadcast* ]]; then
+            jq --arg msg "${{ inputs.broadcast }}" '.broadcast.message = $msg' public.json > tmp.json
+            mv tmp.json public.json
+          fi
 
-            # 版本更新
-            if [[ "${{ needs.validate-inputs.outputs.mode }}" == *version* ]]; then
-              win_hash=$(sha256sum artifacts/windows-latest-bin/Steamauto-windows-latest | cut -d' ' -f1)
-              lin_hash=$(sha256sum artifacts/ubuntu-latest-bin/Steamauto-ubuntu-latest | cut -d' ' -f1)
-              
-              jq \
-                --arg ver "$NEW_VERSION" \
-                --arg log "${{ inputs.changelog }}" \
-                --arg lvl "${{ inputs.level }}" \
-                --arg sig "${{ inputs.significance }}" \
-                --arg win_hash "$win_hash" \
-                --arg lin_hash "$lin_hash" \
-                --arg release_tag "$RELEASE_TAG" \
-                --arg repo "$REPO_URL" \
-                '.versions[$ver] = {
-                  "changelog": $log,
-                  "download_url": {
-                    "windows": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-windows-latest"],
-                    "linux-x64": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-ubuntu-latest"]
-                  },
-                  "hash": {
-                    "windows": $win_hash,
-                    "linux-x64": $lin_hash
-                  },
-                  "level": $lvl,
-                  "significance": $sig
-                }' public.json > tmp.json && mv tmp.json public.json
-            fi
+          # 版本更新
+          if [[ "${{ needs.validate-inputs.outputs.mode }}" == *version* ]]; then
+            win_hash=$(sha256sum artifacts/windows-latest-bin/Steamauto-windows-latest | cut -d' ' -f1)
+            lin_hash=$(sha256sum artifacts/ubuntu-latest-bin/Steamauto-ubuntu-latest | cut -d' ' -f1)
+            
+            jq \
+              --arg ver "$NEW_VERSION" \
+              --arg log "${{ inputs.changelog }}" \
+              --arg lvl "${{ inputs.level }}" \
+              --arg sig "${{ inputs.significance }}" \
+              --arg win_hash "$win_hash" \
+              --arg lin_hash "$lin_hash" \
+              --arg release_tag "$RELEASE_TAG" \
+              --arg repo "$REPO_URL" \
+              '.versions[$ver] = {
+                "changelog": $log,
+                "download_url": {
+                  "windows": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-windows-latest"],
+                  "linux-x64": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-ubuntu-latest"]
+                },
+                "hash": {
+                  "windows": $win_hash,
+                  "linux-x64": $lin_hash
+                },
+                "level": $lvl,
+                "significance": $sig
+              }' public.json > tmp.json && mv tmp.json public.json
+          fi
 
       - name: Commit Changes
         uses: EndBug/add-and-commit@v9
