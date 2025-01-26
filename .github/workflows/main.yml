@@ -28,6 +28,7 @@ jobs:
       - name: Input Validation
         id: mode-detection
         run: |
+          mode=""
           if [ -n "${{ inputs.version }}" ]; then
             if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
               echo "::error::版本号需要同时提供 changelog/level/significance"
@@ -56,6 +57,7 @@ jobs:
 
   build:
     needs: prepare
+    if: contains(needs.validate-inputs.outputs.mode, 'version')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -66,31 +68,27 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
-          cache: 'pip'
-
-      - name: Install Dependencies
-        run: |
-          pip install pyinstaller
-          pip install -r requirements.txt
+          python-version: "3.12"
 
       - name: Build Executables
         run: |
+          pip install pyinstaller
+          pip install -r requirements.txt
           python utils/add_build_info.py
           pyinstaller -F Steamauto.py \
             --collect-all apprise \
             --name "Steamauto-${{ matrix.os }}" \
-            --add-data "plugins:plugins" \
-            --distpath dist/${{ matrix.os }}
+            --add-data "plugins:plugins"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-bin
-          path: dist/${{ matrix.os }}
+          path: dist
 
   publish:
     needs: build
+    if: contains(needs.validate-inputs.outputs.mode, 'version')
     runs-on: ubuntu-latest
     outputs:
       release-tag: ${{ steps.tag-generation.outputs.tag }}
@@ -108,12 +106,6 @@ jobs:
           artifacts: "releases/*"
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          pattern: '*-bin'
-
   update-metadata:
     needs: 
       - validate-inputs
@@ -124,16 +116,44 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Process Metadata Updates
+        env:
+          NEW_VERSION: ${{ inputs.version }}
+          REPO_URL: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.publish.outputs.release-tag }}
         run: |
-          # 广播更新分支
+          # 广播更新
           if [[ "${{ needs.validate-inputs.outputs.mode }}" == *broadcast* ]]; then
             jq --arg msg "${{ inputs.broadcast }}" '.broadcast.message = $msg' public.json > tmp.json
             mv tmp.json public.json
           fi
 
-          # 版本更新分支（仅当需要版本更新时执行）
+          # 版本更新
           if [[ "${{ needs.validate-inputs.outputs.mode }}" == *version* ]]; then
-            # ... (原有哈希计算和版本信息更新逻辑)
+            win_hash=$(sha256sum artifacts/windows-latest-bin/Steamauto-windows-latest | cut -d' ' -f1)
+            lin_hash=$(sha256sum artifacts/ubuntu-latest-bin/Steamauto-ubuntu-latest | cut -d' ' -f1)
+            
+            jq \
+              --arg ver "$NEW_VERSION" \
+              --arg log "${{ inputs.changelog }}" \
+              --arg lvl "${{ inputs.level }}" \
+              --arg sig "${{ inputs.significance }}" \
+              --arg win_hash "$win_hash" \
+              --arg lin_hash "$lin_hash" \
+              --arg release_tag "$RELEASE_TAG" \
+              --arg repo "$REPO_URL" \
+              '.versions[$ver] = {
+                "changelog": $log,
+                "download_url": {
+                  "windows": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-windows-latest"],
+                  "linux-x64": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-ubuntu-latest"]
+                },
+                "hash": {
+                  "windows": $win_hash,
+                  "linux-x64": $lin_hash
+                },
+                "level": $lvl,
+                "significance": $sig
+              }' public.json > tmp.json && mv tmp.json public.json
           fi
 
       - name: Commit Changes
@@ -141,8 +161,9 @@ jobs:
         with:
           add: |
             public.json
-            ${{ contains(needs.validate-inputs.outputs.mode, 'version') && 'utils/static.py' || '' }}
+            ${{ contains(needs.validate-inputs.outputs.mode, 'version') && 'utils/static.py' }}
           message: |
             ${{ format('{0}{1}', 
-              (inputs.changelog && 'Version: ' + inputs.changelog), 
-              (inputs.broadcast && '\nBroadcast: ' + inputs.broadcast)) }}
+              (inputs.changelog && format('Version: {0}', inputs.changelog)), 
+              (inputs.broadcast && format('\nBroadcast: {0}', inputs.broadcast))) }}
+          default_author: github_actions
