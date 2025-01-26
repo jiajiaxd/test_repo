@@ -84,7 +84,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install pyinstaller==6.1.0
+          pip install pyinstaller
           pip install -r requirements.txt --require-hashes
 
       - name: Build Executables
