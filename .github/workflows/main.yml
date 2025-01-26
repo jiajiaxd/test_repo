@@ -1,0 +1,192 @@
+name: Release Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '新版本号 (需同时填写changelog/level/significance)'
+        required: false
+      changelog:
+        description: '版本更新日志'
+        required: false
+      level:
+        description: '版本级别 (stable/beta)'
+        required: false
+      significance:
+        description: '版本重要性 (normal/important)'
+        required: false
+      broadcast:
+        description: '广播消息 (留空不修改)'
+        required: false
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode-detection.outputs.mode }}
+    steps:
+      - name: Input Validation
+        id: mode-detection
+        run: |
+          # 修复变量引用方式
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            if [ -z "${{ github.event.inputs.changelog }}" ] || \
+               [ -z "${{ github.event.inputs.level }}" ] || \
+               [ -z "${{ github.event.inputs.significance }}" ]; then
+              echo "::error::版本号需要同时提供 changelog/level/significance"
+              exit 1
+            fi
+            mode="version"
+          fi
+          
+          if [ -n "${{ github.event.inputs.broadcast }}" ]; then
+            mode="${mode:+$mode }broadcast"
+          fi
+
+          # 处理同时存在的情况
+          if [ -n "${{ github.event.inputs.version }}" ] && [ -n "${{ github.event.inputs.broadcast }}" ]; then
+            mode="both"
+          fi
+
+          [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
+          echo "mode=$mode" >> $GITHUB_OUTPUT
+
+  prepare:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Ensure File Existence
+        run: |
+          [ -f utils/static.py ] || touch utils/static.py
+          [ -f public.json ] || echo '{}' > public.json
+
+      - name: Update Version File
+        if: contains(needs.validate-inputs.outputs.mode, 'version')
+        run: |
+          sed -i "s/CURRENT_VERSION = \".*\"/CURRENT_VERSION = \"${{ github.event.inputs.version }}\"/" utils/static.py
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install pyinstaller==6.1.0
+          pip install -r requirements.txt --require-hashes
+
+      - name: Build Executables
+        run: |
+          python utils/add_build_info.py
+          pyinstaller -F Steamauto.py \
+            --collect-all apprise \
+            --name "Steamauto-${{ matrix.os }}" \
+            --add-data "plugins:plugins" \
+            --distpath dist/${{ matrix.os }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-bin
+          path: dist/${{ matrix.os }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      release-tag: ${{ steps.tag-generation.outputs.tag }}
+    steps:
+      - name: Generate Timestamp
+        id: tag-generation
+        run: |
+          echo "tag=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ steps.tag-generation.outputs.tag }}
+          name: "Build ${{ steps.tag-generation.outputs.tag }}"
+          artifacts: "releases/*"
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: '*-bin'
+
+  update-metadata:
+    needs: [validate-inputs, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JSON Processor
+        uses: dcarbone/install-jq@v1
+
+      - name: Process Metadata Updates
+        env:
+          NEW_VERSION: ${{ github.event.inputs.version }}
+          REPO_URL: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.publish.outputs.release-tag }}
+        run: |
+          # 确保文件存在
+          [ -f public.json ] || echo '{}' > public.json
+
+          # 计算哈希值
+          win_hash=$(sha256sum artifacts/windows-latest-bin/Steamauto-windows-latest | cut -d' ' -f1)
+          lin_hash=$(sha256sum artifacts/ubuntu-latest-bin/Steamauto-ubuntu-latest | cut -d' ' -f1)
+
+          # 使用参数化处理URL
+          if [[ "${{ needs.validate-inputs.outputs.mode }}" =~ version|both ]]; then
+            jq \
+              --arg ver "$NEW_VERSION" \
+              --arg log "${{ github.event.inputs.changelog }}" \
+              --arg lvl "${{ github.event.inputs.level }}" \
+              --arg sig "${{ github.event.inputs.significance }}" \
+              --arg win_hash "$win_hash" \
+              --arg lin_hash "$lin_hash" \
+              --arg release_tag "$RELEASE_TAG" \
+              --arg repo "$REPO_URL" \
+              '.versions[$ver] = {
+                "changelog": $log,
+                "download_url": {
+                  "windows": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-windows-latest"],
+                  "linux-x64": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-ubuntu-latest"]
+                },
+                "hash": {
+                  "windows": $win_hash,
+                  "linux-x64": $lin_hash
+                },
+                "level": $lvl,
+                "significance": $sig
+              }' public.json > tmp.json && mv tmp.json public.json
+          fi
+
+          if [[ "${{ needs.validate-inputs.outputs.mode }}" =~ broadcast|both ]]; then
+            jq --arg msg "${{ github.event.inputs.broadcast }}" '.broadcast.message = $msg' public.json > tmp.json && mv tmp.json public.json
+          fi
+
+      - name: Commit Changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: |
+            public.json
+            utils/static.py
+          message: |
+            ${{ format('{0}{1}', 
+              (github.event.inputs.changelog != '' && format('Version: {0}', github.event.inputs.changelog)), 
+              (github.event.inputs.broadcast != '' && format('\nBroadcast: {0}', github.event.inputs.broadcast))) }}
+          default_author: github_actions
