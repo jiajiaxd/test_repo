@@ -1,4 +1,4 @@
-name: Release Workflow
+name: Publsih New Version
 
 on:
   workflow_dispatch:
@@ -46,11 +46,9 @@ jobs:
 
       - name: Update files
         run: |
-          # 处理换行符转义
-          CHANGELOG_ESCAPED=$(echo "${{ github.event.inputs.changelog }}" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()).strip("\""))')
-          python scripts/update_files.py \
+          python .github/scripts/update_files.py \
             --version "${{ github.event.inputs.version }}" \
-            --changelog "$CHANGELOG_ESCAPED" \
+            --changelog "${{ github.event.inputs.changelog }}" \
             --level "${{ github.event.inputs.level }}" \
             --significance "${{ github.event.inputs.significance }}"
 
@@ -85,7 +83,7 @@ jobs:
       - name: Build binary
         run: |
           pip install pyinstaller -r requirements.txt
-          pyinstaller -F Steamauto.py --name Steamauto-${{ matrix.os }}
+          pyinstaller -F Steamauto.py --collect-all apprise --name Steamauto-${{ matrix.os }}
       
       - name: Check build result
         if: ${{ failure() }}
@@ -119,12 +117,10 @@ jobs:
         run: |
           mkdir -p release_files
           
-          # 检查并复制Windows文件
           if [ -n "$(ls -A artifacts/windows/* 2>/dev/null)" ]; then
             cp -r artifacts/windows/* release_files/
           fi
           
-          # 检查并复制Linux文件
           if [ -n "$(ls -A artifacts/linux/* 2>/dev/null)" ]; then
             cp -r artifacts/linux/* release_files/
           fi
@@ -133,7 +129,6 @@ jobs:
 
       - name: Prepare release body
         run: |
-          # 将输入的changelog转换为实际换行符
           echo -e "${{ github.event.inputs.changelog }}" > release_body.md
 
       - name: Create Release
@@ -161,7 +156,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python scripts/update_metadata.py \
+          python .github/scripts/update_metadata.py \
             --version "${{ github.event.inputs.version }}" \
             --repo "${{ github.repository }}"
 

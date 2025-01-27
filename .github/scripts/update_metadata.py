@@ -2,7 +2,9 @@ import argparse
 import hashlib
 import json
 import os
+
 import requests
+
 
 def get_release_assets(repo, version, token):
     """获取 GitHub Release 的构建产物信息"""
