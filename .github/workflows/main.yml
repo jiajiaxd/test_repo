@@ -39,9 +39,11 @@ jobs:
 
       - name: Update files
         run: |
+          # 处理换行符转义
+          CHANGELOG_ESCAPED=$(echo "${{ github.event.inputs.changelog }}" | python -c 'import sys,json; print(json.dumps(sys.stdin.read()).strip("\""))')
           python scripts/update_files.py \
             --version "${{ github.event.inputs.version }}" \
-            --changelog "${{ github.event.inputs.changelog }}" \
+            --changelog "$CHANGELOG_ESCAPED" \
             --level "${{ github.event.inputs.level }}" \
             --significance "${{ github.event.inputs.significance }}"
 
@@ -92,7 +94,14 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           path: ./artifacts
-          pattern: binaries-*
+          name: |
+            binaries-windows-latest
+            binaries-ubuntu-latest
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release_files
+          find ./artifacts -type f -exec mv {} release_files/ \;
 
       - name: Create Release
         uses: ncipollo/release-action@v1
@@ -100,7 +109,7 @@ jobs:
           tag: ${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}
           body: ${{ github.event.inputs.changelog }}
-          artifacts: ./artifacts/**/*
+          artifacts: release_files/*
           token: ${{ secrets.GITHUB_TOKEN }}
 
   finalize:
@@ -127,5 +136,6 @@ jobs:
         uses: EndBug/add-and-commit@v9
         with:
           add: utils/static.py public.json
-          message: "${{ github.event.inputs.changelog }}"
-          token: ${{ secrets.GITHUB_TOKEN }}
+          message: |
+            ${{ github.event.inputs.changelog }}
+          default_author: github_actions
