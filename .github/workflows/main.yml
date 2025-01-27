@@ -76,10 +76,7 @@ jobs:
       - name: Build binary
         run: |
           pip install pyinstaller -r requirements.txt
-          pyinstaller -F Steamauto.py \
-            --collect-all apprise \
-            --name Steamauto-${{ matrix.os }} \
-            --add-data "plugins:plugins"
+          pyinstaller -F Steamauto.py --name Steamauto-${{ matrix.os }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
