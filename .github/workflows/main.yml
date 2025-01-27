@@ -37,6 +37,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate version format
+        run: |
+          if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format"
+            exit 1
+          fi
+
       - name: Update files
         run: |
           # 处理换行符转义
@@ -79,6 +86,12 @@ jobs:
         run: |
           pip install pyinstaller -r requirements.txt
           pyinstaller -F Steamauto.py --name Steamauto-${{ matrix.os }}
+      
+      - name: Check build result
+        if: ${{ failure() }}
+        run: |
+          echo "Build failed on ${{ matrix.os }}"
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
@@ -104,12 +117,9 @@ jobs:
 
       - name: Prepare release files
         run: |
-          # 创建统一的发布目录
           mkdir -p release_files
-          # 合并所有构建产物（保留平台目录结构）
-          cp -r artifacts/windows/* release_files/
-          cp -r artifacts/linux/* release_files/
-          # 确认文件结构
+          cp -r artifacts/windows/* release_files/windows/
+          cp -r artifacts/linux/* release_files/linux/
           tree release_files
 
       - name: Create Release
