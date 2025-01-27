@@ -1,166 +1,155 @@
-name: Release Manager
+name: Release Workflow
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: '新版本号 (需同时填写changelog/level/significance)'
+        description: 'Version number (requires changelog, level, significance)'
         required: false
       changelog:
-        description: '版本更新日志'
+        description: 'Changelog for the version'
         required: false
       level:
-        description: '版本级别 (stable/beta)'
+        description: 'Release level (critical/important/normal)'
         required: false
       significance:
-        description: '版本重要性 (normal/important)'
+        description: 'Release significance (major/minor/patch)'
         required: false
       broadcast:
-        description: '广播消息 (留空不修改)'
+        description: 'Broadcast message (optional)'
         required: false
 
 jobs:
-  validate-inputs:
+  validate_and_prepare:
+    name: Validate Input & Prepare Files
     runs-on: ubuntu-latest
     outputs:
-      mode: ${{ steps.mode-detection.outputs.mode }}
-    steps:
-      - name: Input Validation
-        id: mode-detection
-        run: |
-          mode=""
-          if [ -n "${{ inputs.version }}" ]; then
-            if [ -z "${{ inputs.changelog }}" ] || [ -z "${{ inputs.level }}" ] || [ -z "${{ inputs.significance }}" ]; then
-              echo "::error::版本号需要同时提供 changelog/level/significance"
-              exit 1
-            fi
-            mode="version"
-          fi
-          
-          if [ -n "${{ inputs.broadcast }}" ]; then
-            mode="${mode:+$mode-}broadcast"
-          fi
-
-          [ -z "$mode" ] && { echo "::error::至少需要提供版本信息或广播消息"; exit 1; }
-          echo "mode=$mode" >> $GITHUB_OUTPUT
-
-  prepare:
-    needs: validate-inputs
-    if: contains(needs.validate-inputs.outputs.mode, 'version')
-    runs-on: ubuntu-latest
+      commit_message: ${{ steps.generate_commit_msg.outputs.message }}
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Update Version File
+
+      # 输入参数验证
+      - name: Validate inputs
         run: |
-          sed -i "s/CURRENT_VERSION = \".*\"/CURRENT_VERSION = \"${{ inputs.version }}\"/" utils/static.py
+          if [ -n "${{ inputs.version }}" ]; then
+              [ -z "${{ inputs.changelog }}" ] && echo "Missing changelog" && exit 1
+              [ -z "${{ inputs.level }}" ] && echo "Missing level" && exit 1
+              [ -z "${{ inputs.significance }}" ] && echo "Missing significance" && exit 1
+          else
+              [ -n "${{ inputs.changelog }}" ] && echo "Changelog requires version" && exit 1
+              [ -n "${{ inputs.level }}" ] && echo "Level requires version" && exit 1
+              [ -n "${{ inputs.significance }}" ] && echo "Significance requires version" && exit 1
+          fi
+
+      # 修改文件版本和公告信息
+      - name: Modify files
+        run: |
+          python .github/scripts/modify_files.py \
+            --version "${{ inputs.version }}" \
+            --changelog "${{ inputs.changelog }}" \
+            --level "${{ inputs.level }}" \
+            --significance "${{ inputs.significance }}" \
+            --broadcast "${{ inputs.broadcast }}"
+
+      # 生成提交信息
+      - name: Generate commit message
+        id: generate_commit_msg
+        run: |
+          msg=""
+          if [ -n "${{ inputs.version }}" ]; then
+              msg+="Version ${{ inputs.version }}: ${{ inputs.changelog }}"
+          fi
+          if [ -n "${{ inputs.broadcast }}" ]; then
+              [ -n "$msg" ] && msg+="\n"
+              msg+="Broadcast: ${{ inputs.broadcast }}"
+          fi
+          echo "message=$msg" >> $GITHUB_OUTPUT
+
+      # 保存修改后的代码
+      - uses: actions/upload-artifact@v3
+        with:
+          name: modified-source
+          path: .
 
   build:
-    needs: prepare
-    if: contains(needs.validate-inputs.outputs.mode, 'version')
+    name: Build Executables
+    needs: validate_and_prepare
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with:
+          name: modified-source
+          path: .
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.12"
 
-      - name: Build Executables
+      - name: Build executable
         run: |
           pip install pyinstaller
           pip install -r requirements.txt
-          # python utils/add_build_info.py
+          python utils/add_build_info.py
           pyinstaller -F Steamauto.py \
             --collect-all apprise \
-            --name "Steamauto-${{ matrix.os }}" \
+            --name Steamauto-${{ matrix.os }} \
             --add-data "plugins:plugins"
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.os }}-bin
-          path: dist
+          name: build-${{ matrix.os }}
+          path: dist/
 
   publish:
-    needs: build
-    if: contains(needs.validate-inputs.outputs.mode, 'version')
-    runs-on: ubuntu-latest
-    outputs:
-      release-tag: ${{ steps.tag-generation.outputs.tag }}
-    steps:
-      - name: Generate Timestamp
-        id: tag-generation
-        run: |
-          echo "tag=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ steps.tag-generation.outputs.tag }}
-          name: "Build ${{ steps.tag-generation.outputs.tag }}"
-          artifacts: "releases/*"
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  update-metadata:
-    needs: validate-inputs
+    name: Publish Release
+    needs: [validate_and_prepare, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Process Metadata Updates
-        env:
-          NEW_VERSION: ${{ inputs.version }}
-          REPO_URL: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.publish.outputs.release-tag }}
-        run: |
-          # 广播更新
-          if [[ "${{ needs.validate-inputs.outputs.mode }}" == *broadcast* ]]; then
-            jq --arg msg "${{ inputs.broadcast }}" '.broadcast.message = $msg' public.json > tmp.json
-            mv tmp.json public.json
-          fi
 
-          # 版本更新
-          if [[ "${{ needs.validate-inputs.outputs.mode }}" == *version* ]]; then
-            win_hash=$(sha256sum artifacts/windows-latest-bin/Steamauto-windows-latest | cut -d' ' -f1)
-            lin_hash=$(sha256sum artifacts/ubuntu-latest-bin/Steamauto-ubuntu-latest | cut -d' ' -f1)
-            
-            jq \
-              --arg ver "$NEW_VERSION" \
-              --arg log "${{ inputs.changelog }}" \
-              --arg lvl "${{ inputs.level }}" \
-              --arg sig "${{ inputs.significance }}" \
-              --arg win_hash "$win_hash" \
-              --arg lin_hash "$lin_hash" \
-              --arg release_tag "$RELEASE_TAG" \
-              --arg repo "$REPO_URL" \
-              '.versions[$ver] = {
-                "changelog": $log,
-                "download_url": {
-                  "windows": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-windows-latest"],
-                  "linux-x64": ["https://github.com/\($repo)/releases/download/\($release_tag)/Steamauto-ubuntu-latest"]
-                },
-                "hash": {
-                  "windows": $win_hash,
-                  "linux-x64": $lin_hash
-                },
-                "level": $lvl,
-                "significance": $sig
-              }' public.json > tmp.json && mv tmp.json public.json
-          fi
-
-      - name: Commit Changes
-        uses: EndBug/add-and-commit@v9
+      # 获取修改后的源代码
+      - uses: actions/download-artifact@v3
         with:
-          add: |
-            public.json
-            ${{ contains(needs.validate-inputs.outputs.mode, 'version') && 'utils/static.py' }}
-          message: |
-            ${{ format('{0}{1}', 
-              (inputs.changelog && format('Version: {0}', inputs.changelog)), 
-              (inputs.broadcast && format('\nBroadcast: {0}', inputs.broadcast))) }}
+          name: modified-source
+          path: .
+
+      # 下载构建产物
+      - name: Download build artifacts
+        run: |
+          mkdir -p releases
+          for os in windows-latest ubuntu-latest; do
+            actions/download-artifact@v3
+              name: build-$os
+              path: releases/$os
+          done
+
+      # 发布到GitHub Releases
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ inputs.version || 'v0.0.0' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: releases/*
+          body: |
+            **Changelog**: ${{ inputs.changelog }}
+            **Level**: ${{ inputs.level }}
+            **Significance**: ${{ inputs.significance }}
+
+      # 更新下载信息和哈希值
+      - name: Update download info
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python .github/scripts/update_download_info.py
+
+      # 提交最终修改
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9.1.4
+        with:
           default_author: github_actions
+          add: utils/static.py public.json
+          message: ${{ needs.validate_and_prepare.outputs.commit_message }}
