@@ -4,6 +4,20 @@
   },
   "versions": [
     {
+      "version": "87.2.2",
+      "changelog": "1.test\\n2.eetest\n",
+      "level": "stable",
+      "significance": "normal",
+      "download_url": {
+        "linux": "https://github.com/jiajiaxd/test_repo/releases/download/87.2.2/Steamauto-ubuntu-latest",
+        "windows": "https://github.com/jiajiaxd/test_repo/releases/download/87.2.2/Steamauto-windows-latest.exe"
+      },
+      "hash": {
+        "linux": "927dffe3ef38dad2ebdee856970de9f08a481359513140a977010cd0b90f3dcd",
+        "windows": "ec328a56a7fc2dcfe55f3698633ab34c4c33c565a32f2c1894b4d407a2937fb1"
+      }
+    },
+    {
       "version": "12.5.5",
       "changelog": "1.5656\\n2.523",
       "level": "stable",
