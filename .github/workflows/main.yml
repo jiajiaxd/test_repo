@@ -1,87 +1,112 @@
-name: Release Workflow
+name: Smart Release Workflow
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number (requires changelog, level, significance)'
+        description: 'Semver version (需要配合changelog/level/significance)'
         required: false
       changelog:
-        description: 'Changelog for the version'
+        description: '版本更新日志'
         required: false
       level:
-        description: 'Release level (critical/important/normal)'
+        description: '严重等级 (critical/important/normal)'
         required: false
       significance:
-        description: 'Release significance (major/minor/patch)'
+        description: '变更等级 (major/minor/patch)'
         required: false
       broadcast:
-        description: 'Broadcast message (optional)'
+        description: '广播消息内容'
         required: false
 
 jobs:
-  validate_and_prepare:
-    name: Validate Input & Prepare Files
+  input_validation:
+    name: 🛂 输入验证 & 模式判断
     runs-on: ubuntu-latest
     outputs:
-      commit_message: ${{ steps.generate_commit_msg.outputs.message }}
+      mode: ${{ steps.mode_detection.outputs.mode }}
+      need_build: ${{ steps.mode_detection.outputs.need_build }}
+    steps:
+      - name: 模式检测
+        id: mode_detection
+        run: |
+          # 模式判断逻辑
+          if [ -n "${{ inputs.version }}" ]; then
+            [ -z "${{ inputs.changelog }}" ] && echo "❌ 版本发布需要changelog参数" && exit 1
+            [ -z "${{ inputs.level }}" ] && echo "❌ 版本发布需要level参数" && exit 1
+            [ -z "${{ inputs.significance }}" ] && echo "❌ 版本发布需要significance参数" && exit 1
+            
+            if [ -n "${{ inputs.broadcast }}" ]; then
+              echo "mode=both" >> $GITHUB_OUTPUT
+              echo "need_build=true" >> $GITHUB_OUTPUT
+            else
+              echo "mode=version" >> $GITHUB_OUTPUT
+              echo "need_build=true" >> $GITHUB_OUTPUT
+            fi
+          elif [ -n "${{ inputs.broadcast }}" ]; then
+            echo "mode=broadcast" >> $GITHUB_OUTPUT
+            echo "need_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "❌ 无效的输入参数：必须提供版本信息或广播消息" >&2
+            exit 1
+          fi
+
+  file_modification:
+    name: 📝 文件修改
+    needs: input_validation
+    runs-on: ubuntu-latest
+    outputs:
+      commit_message: ${{ steps.generate_commit.outputs.msg }}
     steps:
       - uses: actions/checkout@v4
-
-      # 输入参数验证
-      - name: Validate inputs
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-              [ -z "${{ inputs.changelog }}" ] && echo "Missing changelog" && exit 1
-              [ -z "${{ inputs.level }}" ] && echo "Missing level" && exit 1
-              [ -z "${{ inputs.significance }}" ] && echo "Missing significance" && exit 1
-          else
-              [ -n "${{ inputs.changelog }}" ] && echo "Changelog requires version" && exit 1
-              [ -n "${{ inputs.level }}" ] && echo "Level requires version" && exit 1
-              [ -n "${{ inputs.significance }}" ] && echo "Significance requires version" && exit 1
-          fi
-
-      # 修改文件版本和公告信息
-      - name: Modify files
+      
+      - name: 执行文件修改
         run: |
           python .github/scripts/modify_files.py \
-            --version "${{ inputs.version }}" \
-            --changelog "${{ inputs.changelog }}" \
-            --level "${{ inputs.level }}" \
-            --significance "${{ inputs.significance }}" \
-            --broadcast "${{ inputs.broadcast }}"
+            ${INPUT_VERSION:+--version "$INPUT_VERSION"} \
+            ${INPUT_CHANGELOG:+--changelog "$INPUT_CHANGELOG"} \
+            ${INPUT_LEVEL:+--level "$INPUT_LEVEL"} \
+            ${INPUT_SIGNIFICANCE:+--significance "$INPUT_SIGNIFICANCE"} \
+            ${INPUT_BROADCAST:+--broadcast "$INPUT_BROADCAST"}
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          INPUT_LEVEL: ${{ inputs.level }}
+          INPUT_SIGNIFICANCE: ${{ inputs.significance }}
+          INPUT_BROADCAST: ${{ inputs.broadcast }}
 
-      # 生成提交信息
-      - name: Generate commit message
-        id: generate_commit_msg
+      - name: 生成提交信息
+        id: generate_commit
         run: |
-          msg=""
+          msg_parts=()
           if [ -n "${{ inputs.version }}" ]; then
-              msg+="Version ${{ inputs.version }}: ${{ inputs.changelog }}"
+            msg_parts+=("Release ${{ inputs.version }}: ${{ inputs.changelog }}")
           fi
           if [ -n "${{ inputs.broadcast }}" ]; then
-              [ -n "$msg" ] && msg+="\n"
-              msg+="Broadcast: ${{ inputs.broadcast }}"
+            msg_parts+=("Broadcast update: ${{ inputs.broadcast }}")
           fi
-          echo "message=$msg" >> $GITHUB_OUTPUT
+          echo "msg=${msg_parts[*]}" >> $GITHUB_OUTPUT
 
-      # 保存修改后的代码
       - uses: actions/upload-artifact@v3
         with:
-          name: modified-source
-          path: .
+          name: modified-files
+          path: |
+            utils/static.py
+            public.json
 
-  build:
-    name: Build Executables
-    needs: validate_and_prepare
+  build_and_release:
+    name: 🏗️ 构建 & 发布
+    needs: [input_validation, file_modification]
+    if: ${{ needs.input_validation.outputs.need_build == 'true' }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
+    
     steps:
       - uses: actions/download-artifact@v3
         with:
-          name: modified-source
+          name: modified-files
           path: .
 
       - name: Set up Python
@@ -89,7 +114,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build executable
+      - name: 构建可执行文件
         run: |
           pip install pyinstaller
           pip install -r requirements.txt
@@ -104,52 +129,47 @@ jobs:
           name: build-${{ matrix.os }}
           path: dist/
 
-  publish:
-    name: Publish Release
-    needs: [validate_and_prepare, build]
+  finalization:
+    name: 🚀 最终发布
+    needs: 
+      - input_validation
+      - file_modification
+      - build_and_release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # 获取修改后的源代码
-      - uses: actions/download-artifact@v3
+      - name: 下载修改后的文件
+        uses: actions/download-artifact@v3
         with:
-          name: modified-source
+          name: modified-files
           path: .
 
-      # 下载构建产物
-      - name: Download build artifacts
+      - name: 更新下载信息
+        if: ${{ needs.input_validation.outputs.need_build == 'true' }}
         run: |
-          mkdir -p releases
-          for os in windows-latest ubuntu-latest; do
-            actions/download-artifact@v3
-              name: build-$os
-              path: releases/$os
-          done
+          python .github/scripts/update_downloads.py \
+            --version "${{ inputs.version }}" \
+            --repo ${{ github.repository }}
 
-      # 发布到GitHub Releases
-      - name: Create Release
+      - name: 提交更改
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: utils/static.py public.json
+          message: "${{ needs.file_modification.outputs.commit_message }}"
+          author_name: "GitHub Actions"
+          author_email: "actions@github.com"
+
+      - name: 创建Release
+        if: ${{ needs.input_validation.outputs.need_build == 'true' }}
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ inputs.version || 'v0.0.0' }}
+          tag: v${{ inputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: releases/*
           body: |
-            **Changelog**: ${{ inputs.changelog }}
-            **Level**: ${{ inputs.level }}
-            **Significance**: ${{ inputs.significance }}
-
-      # 更新下载信息和哈希值
-      - name: Update download info
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          python .github/scripts/update_download_info.py
-
-      # 提交最终修改
-      - name: Commit changes
-        uses: EndBug/add-and-commit@v9.1.4
-        with:
-          default_author: github_actions
-          add: utils/static.py public.json
-          message: ${{ needs.validate_and_prepare.outputs.commit_message }}
+            ## 版本更新 ${{ inputs.version }}
+            **变更类型**: ${{ inputs.significance }}
+            **严重等级**: ${{ inputs.level }}
+            ### 更新日志
+            ${{ inputs.changelog }}
