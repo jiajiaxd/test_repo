@@ -117,17 +117,32 @@ jobs:
 
       - name: Prepare release files
         run: |
-          mkdir -p release_files
-          cp -r artifacts/windows/* release_files/windows/
-          cp -r artifacts/linux/* release_files/linux/
+          mkdir -p release_files/windows
+          mkdir -p release_files/linux
+          
+          # 检查并复制Windows文件
+          if [ -n "$(ls -A artifacts/windows/* 2>/dev/null)" ]; then
+            cp -r artifacts/windows/* release_files/windows/
+          fi
+          
+          # 检查并复制Linux文件
+          if [ -n "$(ls -A artifacts/linux/* 2>/dev/null)" ]; then
+            cp -r artifacts/linux/* release_files/linux/
+          fi
+          
           tree release_files
+
+      - name: Prepare release body
+        run: |
+          # 将输入的changelog转换为实际换行符
+          echo -e "${{ github.event.inputs.changelog }}" > release_body.md
 
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.event.inputs.version }}
           name: Release ${{ github.event.inputs.version }}
-          body: ${{ github.event.inputs.changelog }}
+          bodyFile: release_body.md
           artifacts: release_files/**
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -151,9 +166,14 @@ jobs:
             --version "${{ github.event.inputs.version }}" \
             --repo "${{ github.repository }}"
 
+      - name: Prepare commit message
+        run: |
+          # 将输入的changelog转换为实际换行符
+          echo -e "${{ github.event.inputs.changelog }}" > commit_message.txt
+
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
         with:
           add: utils/static.py public.json
-          message: "${{ github.event.inputs.changelog }}"
+          messageFile: commit_message.txt
           default_author: github_actions
