@@ -14,16 +14,26 @@ def get_release_assets(repo, version, token):
     response.raise_for_status()
     return response.json()["assets"]
 
-def calculate_sha256(url, token):
-    """计算文件的 SHA256 哈希值"""
+def calculate_sha256(url, token, file_path = 'cache'):
+    """下载文件到磁盘并计算 SHA256 哈希值"""
     headers = {"Authorization": f"Bearer {token}"}
     response = requests.get(url, headers=headers, stream=True)
+    
+    # 确保请求成功
+    response.raise_for_status()
+    
+    # 将文件下载到磁盘
+    with open(file_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                file.write(chunk)
+    
+    # 从磁盘读取文件并计算 SHA256 哈希值
     sha256 = hashlib.sha256()
-    
-    for chunk in response.iter_content(chunk_size=8192):
-        if chunk:
+    with open(file_path, 'rb') as file:
+        while chunk := file.read(8192):
             sha256.update(chunk)
-    
+    os.remove(file_path)
     return sha256.hexdigest()
 
 def update_public_json(version, repo, token):
