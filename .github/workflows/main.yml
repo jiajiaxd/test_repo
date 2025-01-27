@@ -165,9 +165,21 @@ jobs:
             --version "${{ github.event.inputs.version }}" \
             --repo "${{ github.repository }}"
 
+      - name: Process message
+        id: process-message
+        run: |
+          # 将 \n 替换为实际的换行符
+          processed_message=$(echo "${{ github.event.inputs.changelog }}" | sed 's/\\n/\n/g')
+          # 将处理后的消息存储到环境变量中
+          echo "MESSAGE<<EOF" >> $GITHUB_ENV
+          echo "$processed_message" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
+        env:
+          COMMIT_MESSAGE: ${{ env.MESSAGE }}
         with:
           add: utils/static.py public.json
-          message: "${{ fromJSON('\"' + github.event.inputs.changelog + '\"') }}"
+          message: "${{ env.COMMIT_MESSAGE }}"
           default_author: github_actions
