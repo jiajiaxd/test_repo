@@ -7,11 +7,11 @@
             "changelog": "initial",
             "download_url": {
                 "windows": [""],
-                "linux-x64": [""],
+                "linux-x64": [""]
             },
             "hash": {
                 "windows": "",
-                "linux-x64": "",
+                "linux-x64": ""
             },
             "level": "stable",
             "significance": "normal"
