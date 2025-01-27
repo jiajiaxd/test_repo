@@ -29,12 +29,13 @@ def calculate_sha256(url, token, file_path = 'cache'):
                 file.write(chunk)
     
     # 从磁盘读取文件并计算 SHA256 哈希值
-    sha256 = hashlib.sha256()
-    with open(file_path, 'rb') as file:
-        while chunk := file.read(8192):
-            sha256.update(chunk)
+    hash_sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hash_sha256.update(chunk)
+    
     os.remove(file_path)
-    return sha256.hexdigest()
+    return hash_sha256.hexdigest()
 
 def update_public_json(version, repo, token):
     """更新 public.json 文件中的下载链接和哈希值"""
