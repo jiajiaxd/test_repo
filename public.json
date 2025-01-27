@@ -1,20 +1,21 @@
 {
-    "broadcast": {
-        "message": "<bold><red>Hello world!<reset>"
-    },
-    "versions": {
-        "5.0.0": {
-            "changelog": "initial",
-            "download_url": {
-                "windows": [""],
-                "linux-x64": [""]
-            },
-            "hash": {
-                "windows": "",
-                "linux-x64": ""
-            },
-            "level": "stable",
-            "significance": "normal"
-        }
+  "broadcast": {
+    "message": "<bold><red>Hello world!<reset>"
+  },
+  "versions": [
+    {
+      "version": "12.5.5",
+      "changelog": "1.5656\\n2.523",
+      "level": "stable",
+      "significance": "normal",
+      "download_url": {
+        "linux": "https://github.com/jiajiaxd/test_repo/releases/download/12.5.5/Steamauto-ubuntu-latest",
+        "windows": "https://github.com/jiajiaxd/test_repo/releases/download/12.5.5/Steamauto-windows-latest.exe"
+      },
+      "hash": {
+        "linux": "36bdcec74733a5a5ba87ba4d708976fbca86df925796ae77723063141277b2d0",
+        "windows": "1dd8cbd7a492fe133ad65641e7f7829433779cf33a4b5b3e2f8260640656f5e6"
+      }
     }
+  ]
 }
