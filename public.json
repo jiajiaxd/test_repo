@@ -4,6 +4,20 @@
   },
   "versions": [
     {
+      "version": "600.5.5",
+      "changelog": "123",
+      "level": "stable",
+      "significance": "normal",
+      "download_url": {
+        "linux": "https://github.com/jiajiaxd/test_repo/releases/download/600.5.5/Steamauto-ubuntu-latest",
+        "windows": "https://github.com/jiajiaxd/test_repo/releases/download/600.5.5/Steamauto-windows-latest.exe"
+      },
+      "hash": {
+        "linux": "ae85ffd0214d34d4ffecb7d0adfda6e3caee98e1ab8320db9eee8d170ceb6f9a",
+        "windows": "a9ea8b7f7efb799047d86ab79ed07604eb9c76167186a5b9b051e6626237bde2"
+      }
+    },
+    {
       "version": "223.5.5",
       "changelog": "1.123\\n2.456",
       "level": "stable",
