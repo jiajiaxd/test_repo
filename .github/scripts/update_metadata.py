@@ -18,7 +18,6 @@ def get_release_assets(repo, version, token):
 def calculate_sha256(url, token, file_path='cache'):
     """下载文件到磁盘并计算 SHA256 哈希值"""
     headers = {"Authorization": f"Bearer {token}"}
-    # response = requests.get(url, headers=headers, stream=True)
     response = requests.get(url, headers=headers, stream=True, allow_redirects=True)
 
     # 确保请求成功
@@ -55,7 +54,7 @@ def update_public_json(version, repo, token):
             for asset in assets:
                 platform = "windows" if "windows" in asset["name"].lower() else "linux"
                 entry["download_url"][platform] = asset["browser_download_url"]
-                entry["hash"][platform] = calculate_sha256(asset["url"], token)
+                entry["hash"][platform] = calculate_sha256(asset["browser_download_url"], token)
             break
 
     # 写回 public.json 文件
